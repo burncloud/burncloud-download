@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use async_trait::async_trait;
 use anyhow::Result;
-use crate::types::{TaskId, DownloadProgress, DownloadTask};
+use burncloud_download_types::{TaskId, DownloadProgress, DownloadTask, DownloadStatus};
 
 /// Core download manager trait for implementing download backends
 #[async_trait]
@@ -35,7 +35,7 @@ pub trait DownloadManager: Send + Sync {
 #[async_trait]
 pub trait DownloadEventHandler: Send + Sync {
     /// Called when download task status changes
-    async fn on_status_changed(&self, task_id: TaskId, old_status: crate::types::DownloadStatus, new_status: crate::types::DownloadStatus);
+    async fn on_status_changed(&self, task_id: TaskId, old_status: DownloadStatus, new_status: DownloadStatus);
 
     /// Called when download progress updates
     async fn on_progress_updated(&self, task_id: TaskId, progress: DownloadProgress);

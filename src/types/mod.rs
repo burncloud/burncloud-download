@@ -2,6 +2,5 @@ pub mod task;
 pub mod progress;
 pub mod status;
 
-pub use task::{DownloadTask, TaskId};
-pub use progress::DownloadProgress;
-pub use status::DownloadStatus;
+// Re-export types from burncloud-download-types for backwards compatibility
+pub use burncloud_download_types::{DownloadTask, TaskId, DownloadProgress, DownloadStatus};

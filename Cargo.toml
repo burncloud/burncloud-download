@@ -11,12 +11,22 @@ keywords = ["burncloud", "download", "manager", "async"]
 categories = ["development-tools", "asynchronous"]
 
 [dependencies]
+# Core types
+burncloud-download-types = { path = "../burncloud-download-types" }
+
+# Runtime and utilities
 tokio = { version = "1.0", features = ["full"] }
 anyhow = "1.0"
-uuid = { version = "1.0", features = ["v4", "serde"] }
-serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
 async-trait = "0.1"
+log = "0.4"
+
+# Integration dependencies - required for persistent functionality
+burncloud-download-aria2 = { path = "../burncloud-download-aria2" }
+burncloud-database-download = { path = "../burncloud-database-download" }
+
+[features]
+default = []
 
 [dev-dependencies]
 tokio-test = "0.4"

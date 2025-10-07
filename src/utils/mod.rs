@@ -1,1 +1,2 @@
-pub mod id;
+// Utils module
+// ID utilities moved to burncloud-download-types

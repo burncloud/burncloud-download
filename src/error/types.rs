@@ -25,6 +25,9 @@ pub enum DownloadError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
     #[error("General error: {0}")]
     General(String),
 }

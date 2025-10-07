@@ -1,5 +1,5 @@
 use burncloud_download::{
-    DownloadManager, TaskQueueManager, BasicDownloadManager,
+    DownloadManager, TaskQueueManager, BasicDownloadManager, PersistentAria2Manager,
     DownloadEventHandler, DownloadStatus, DownloadProgress, TaskId
 };
 use std::path::PathBuf;
@@ -90,6 +90,77 @@ async fn demonstrate_basic_manager() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn demonstrate_persistent_manager() -> anyhow::Result<()> {
+    println!("\n=== PersistentAria2Manager Demo ===");
+
+    // Note: This demo requires aria2 daemon to be running
+    // Start aria2 with: aria2c --enable-rpc --rpc-listen-port=6800 --rpc-secret=burncloud
+
+    println!("1. Creating PersistentAria2Manager (requires aria2 daemon)...");
+    match PersistentAria2Manager::new().await {
+        Ok(manager) => {
+            println!("   ✓ Manager created successfully");
+
+            // Add a download task
+            println!("2. Adding persistent download task...");
+            let task_id = manager.add_download(
+                "https://httpbin.org/bytes/1024".to_string(),
+                PathBuf::from("data/test-file.bin")
+            ).await?;
+
+            println!("   Task ID: {}", task_id);
+
+            // Monitor progress briefly
+            println!("3. Monitoring progress...");
+            for _i in 0..3 {
+                match manager.get_progress(task_id).await {
+                    Ok(progress) => {
+                        if let Some(percentage) = progress.completion_percentage() {
+                            println!("   Progress: {:.1}% ({} / {} bytes)",
+                                percentage,
+                                progress.downloaded_bytes,
+                                progress.total_bytes.unwrap_or(0)
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        println!("   Progress check failed: {}", e);
+                        break;
+                    }
+                }
+
+                match manager.get_task(task_id).await {
+                    Ok(task) => {
+                        if task.status.is_finished() {
+                            println!("   Download finished: {}", task.status);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        println!("   Task check failed: {}", e);
+                        break;
+                    }
+                }
+
+                sleep(Duration::from_millis(500)).await;
+            }
+
+            // Test shutdown
+            println!("4. Shutting down manager (saves state)...");
+            manager.shutdown().await?;
+            println!("   ✓ Manager shutdown complete");
+        }
+        Err(e) => {
+            println!("   ✗ Failed to create manager: {}", e);
+            println!("   This is expected if aria2 daemon is not running.");
+            println!("   To test this manager, start aria2 with:");
+            println!("   aria2c --enable-rpc --rpc-listen-port=6800 --rpc-secret=burncloud");
+        }
+    }
+
+    Ok(())
+}
+
 async fn demonstrate_queue_manager() -> anyhow::Result<()> {
     println!("\n=== TaskQueueManager Demo ===");
 
@@ -166,15 +237,19 @@ async fn main() -> anyhow::Result<()> {
     // Demonstrate BasicDownloadManager
     demonstrate_basic_manager().await?;
 
+    // Demonstrate PersistentAria2Manager
+    demonstrate_persistent_manager().await?;
+
     // Demonstrate TaskQueueManager
     demonstrate_queue_manager().await?;
 
-    println!("\nBoth implementations successfully demonstrate:");
+    println!("\nAll implementations successfully demonstrate:");
     println!("✓ DownloadManager trait implementation");
     println!("✓ Progress tracking and updates");
     println!("✓ Task lifecycle management");
     println!("✓ Event notification system");
     println!("✓ API consistency across implementations");
+    println!("✓ Persistent download functionality (PersistentAria2Manager)");
 
     println!("\nExample completed successfully!");
 
