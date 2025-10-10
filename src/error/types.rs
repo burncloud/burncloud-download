@@ -30,4 +30,14 @@ pub enum DownloadError {
 
     #[error("General error: {0}")]
     General(String),
+
+    // New errors for duplicate detection
+    #[error("Duplicate detection failed: {0}")]
+    DuplicateDetectionError(String),
+
+    #[error("Task verification failed: {0}")]
+    VerificationError(String),
+
+    #[error("Policy violation: {reason}, found duplicate task {task_id}")]
+    PolicyViolation { task_id: TaskId, reason: String },
 }

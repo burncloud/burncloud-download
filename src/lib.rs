@@ -71,6 +71,8 @@ pub mod queue;
 pub mod manager;
 pub mod error;
 pub mod utils;
+pub mod models;     // New module for duplicate detection models
+pub mod services;   // New module for duplicate detection services
 
 // Re-export core types from burncloud-download-types
 pub use burncloud_download_types::{DownloadTask, DownloadProgress, DownloadStatus, TaskId};
@@ -79,6 +81,13 @@ pub use burncloud_download_types::{DownloadTask, DownloadProgress, DownloadStatu
 pub use traits::{DownloadManager, DownloadEventHandler};
 pub use queue::TaskQueueManager;
 pub use manager::{BasicDownloadManager, PersistentAria2Manager};
+
+// Re-export duplicate detection types
+pub use models::{
+    FileIdentifier, TaskStatus, DuplicatePolicy, DuplicateResult,
+    DuplicateReason, DuplicateAction
+};
+pub use services::{DuplicateDetector, TaskRepository, BackgroundHashCalculator, TaskValidation};
 
 pub use error::DownloadError;
 

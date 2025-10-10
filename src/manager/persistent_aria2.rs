@@ -35,9 +35,10 @@ use crate::traits::DownloadManager;
 use burncloud_download_types::{TaskId, DownloadProgress, DownloadTask, DownloadStatus, DownloadManager as DownloadManagerTrait};
 use burncloud_download_aria2::Aria2DownloadManager;
 use burncloud_database_download::{DownloadRepository, Database};
+use crate::models::{DuplicatePolicy, DuplicateResult, FileIdentifier, DuplicateReason, TaskStatus};
 use async_trait::async_trait;
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -240,6 +241,37 @@ impl PersistentAria2Manager {
         mapping.keys().cloned().collect()
     }
 
+    /// Internal method to create a new download without duplicate checking
+    async fn create_new_download(&self, url: String, target_path: PathBuf) -> Result<TaskId> {
+        log::info!("Adding download: {} -> {}", url, target_path.display());
+
+        // Ensure target directory exists
+        if let Some(parent) = target_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        // Add to aria2
+        let task_id = DownloadManagerTrait::add_download(&*self.aria2, url.clone(), target_path.clone()).await?;
+
+        // Get the created task and save to database
+        let task = DownloadManagerTrait::get_task(&*self.aria2, task_id).await?;
+        self.repository.save_task(&task).await
+            .map_err(|e| anyhow::anyhow!("Failed to persist task to database: {}", e))?;
+
+        // Get and store GID mapping
+        match self.get_gid_for_task(task_id).await {
+            Ok(gid) => {
+                self.store_task_mapping(task_id, gid).await;
+            }
+            Err(e) => {
+                log::warn!("Failed to get GID for task {}: {}", task_id, e);
+            }
+        }
+
+        log::info!("Successfully added download with task ID: {}", task_id);
+        Ok(task_id)
+    }
+
     /// Start the background persistence poller
     async fn start_persistence_poller(&self) {
         let aria2 = self.aria2.clone();
@@ -350,33 +382,17 @@ impl PersistentAria2Manager {
 #[async_trait]
 impl DownloadManager for PersistentAria2Manager {
     async fn add_download(&self, url: String, target_path: PathBuf) -> Result<TaskId> {
-        log::info!("Adding download: {} -> {}", url, target_path.display());
-
-        // Ensure target directory exists
-        if let Some(parent) = target_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
-        // Add to aria2
-        let task_id = DownloadManagerTrait::add_download(&*self.aria2, url.clone(), target_path.clone()).await?;
-
-        // Get the created task and save to database
-        let task = DownloadManagerTrait::get_task(&*self.aria2, task_id).await?;
-        self.repository.save_task(&task).await
-            .map_err(|e| anyhow::anyhow!("Failed to persist task to database: {}", e))?;
-
-        // Get and store GID mapping
-        match self.get_gid_for_task(task_id).await {
-            Ok(gid) => {
-                self.store_task_mapping(task_id, gid).await;
-            }
-            Err(e) => {
-                log::warn!("Failed to get GID for task {}: {}", task_id, e);
+        // Use duplicate detection with default policy (ReuseExisting)
+        match self.add_download_with_policy(&url, &target_path, DuplicatePolicy::default()).await? {
+            DuplicateResult::NewTask(task_id) => Ok(task_id),
+            DuplicateResult::ExistingTask { task_id, .. } => Ok(task_id),
+            DuplicateResult::RequiresDecision { .. } => {
+                // For backwards compatibility, fallback to creating new task
+                log::warn!("Duplicate detection requires decision, creating new task anyway");
+                let task_id = self.create_new_download(url, target_path).await?;
+                Ok(task_id)
             }
         }
-
-        log::info!("Successfully added download with task ID: {}", task_id);
-        Ok(task_id)
     }
 
     async fn pause_download(&self, task_id: TaskId) -> Result<()> {
@@ -448,6 +464,152 @@ impl DownloadManager for PersistentAria2Manager {
 
     async fn active_download_count(&self) -> Result<usize> {
         DownloadManagerTrait::active_download_count(&*self.aria2).await
+    }
+
+    // Duplicate detection methods
+
+    async fn find_duplicate_task(
+        &self,
+        url: &str,
+        target_path: &Path,
+    ) -> Result<Option<TaskId>> {
+        // Create file identifier for duplicate detection
+        let identifier = FileIdentifier::new(url, target_path, None);
+
+        // First check active tasks in aria2
+        let active_tasks = DownloadManagerTrait::list_tasks(&*self.aria2).await?;
+        for task in &active_tasks {
+            if task.url == url && task.target_path == target_path {
+                return Ok(Some(task.id));
+            }
+        }
+
+        // If not found in active tasks, check database for all tasks
+        // This allows finding paused/failed tasks that can be resumed
+        match self.repository.list_tasks().await {
+            Ok(all_tasks) => {
+                for task in all_tasks {
+                    if task.url == url && task.target_path == target_path {
+                        return Ok(Some(task.id));
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to query database for duplicates: {}", e);
+                // Continue with no duplicates found rather than failing
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn add_download_with_policy(
+        &self,
+        url: &str,
+        target_path: &Path,
+        policy: DuplicatePolicy,
+    ) -> Result<DuplicateResult> {
+        // Check for duplicates first
+        if let Some(existing_task_id) = self.find_duplicate_task(url, target_path).await? {
+            // Try to get task from aria2 first (active tasks)
+            let task_result = DownloadManagerTrait::get_task(&*self.aria2, existing_task_id).await;
+
+            let task_status = match task_result {
+                Ok(task) => TaskStatus::from_download_status(task.status),
+                Err(_) => {
+                    // Task not in aria2, check database
+                    match self.repository.get_task(&existing_task_id).await {
+                        Ok(task) => TaskStatus::from_download_status(task.status),
+                        Err(_) => {
+                            // Task not found anywhere, treat as no duplicate
+                            return self.add_download_with_policy(url, target_path, DuplicatePolicy::AllowDuplicate).await;
+                        }
+                    }
+                }
+            };
+
+            if policy.allows_reuse(&task_status) {
+                // If task is paused or failed, we might want to resume it
+                match task_status {
+                    TaskStatus::Paused => {
+                        log::info!("Resuming paused duplicate task: {}", existing_task_id);
+                        let _ = self.resume_download(existing_task_id).await;
+                    }
+                    TaskStatus::Failed(_) => {
+                        log::info!("Retrying failed duplicate task: {}", existing_task_id);
+                        let _ = self.resume_download(existing_task_id).await;
+                    }
+                    _ => {}
+                }
+
+                return Ok(DuplicateResult::ExistingTask {
+                    task_id: existing_task_id,
+                    status: task_status,
+                    reason: DuplicateReason::UrlAndPath,
+                });
+            } else if policy.should_fail_on_duplicate() {
+                return Err(crate::error::DownloadError::PolicyViolation {
+                    task_id: existing_task_id,
+                    reason: "Duplicate found but policy forbids reuse".to_string(),
+                }.into());
+            }
+        }
+
+        // No duplicate found or policy allows new task, create new download
+        let task_id = self.create_new_download(url.to_string(), target_path.to_path_buf()).await?;
+        Ok(DuplicateResult::NewTask(task_id))
+    }
+
+    async fn verify_task_validity(&self, task_id: &TaskId) -> Result<bool> {
+        // Check if task exists in aria2 (active)
+        if DownloadManagerTrait::get_task(&*self.aria2, *task_id).await.is_ok() {
+            return Ok(true);
+        }
+
+        // Check if task exists in database (inactive but valid)
+        match self.repository.get_task(task_id).await {
+            Ok(task) => {
+                // Task exists in database, check if target file exists for completed tasks
+                if matches!(task.status, DownloadStatus::Completed) {
+                    // For completed tasks, verify the file still exists
+                    Ok(tokio::fs::metadata(&task.target_path).await.is_ok())
+                } else {
+                    // For incomplete tasks, consider them valid if they exist in database
+                    Ok(true)
+                }
+            }
+            Err(_) => Ok(false),
+        }
+    }
+
+    async fn get_duplicate_candidates(
+        &self,
+        url: &str,
+        target_path: &Path,
+    ) -> Result<Vec<TaskId>> {
+        let mut candidates = Vec::new();
+
+        // Check active tasks in aria2
+        if let Ok(active_tasks) = DownloadManagerTrait::list_tasks(&*self.aria2).await {
+            for task in &active_tasks {
+                if task.url == url && task.target_path == target_path {
+                    candidates.push(task.id);
+                }
+            }
+        }
+
+        // Check all tasks in database
+        if let Ok(all_tasks) = self.repository.list_tasks().await {
+            for task in all_tasks {
+                if task.url == url && task.target_path == target_path && !candidates.contains(&task.id) {
+                    candidates.push(task.id);
+                }
+            }
+        }
+
+        // Sort by most recent first (assuming TaskId has some time component)
+        // For now, just return as-is since TaskId doesn't expose creation time
+        Ok(candidates)
     }
 }
 

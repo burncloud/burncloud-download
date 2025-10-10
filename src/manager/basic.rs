@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
@@ -8,6 +8,7 @@ use anyhow::Result;
 
 use crate::traits::DownloadManager;
 use crate::types::{TaskId, DownloadProgress, DownloadTask, DownloadStatus};
+use crate::models::{DuplicatePolicy, DuplicateResult, FileIdentifier, DuplicateReason, TaskStatus};
 use crate::error::DownloadError;
 
 /// Basic download manager implementation for demonstration and testing
@@ -207,6 +208,84 @@ impl DownloadManager for BasicDownloadManager {
             .filter(|task| task.status.is_active())
             .count();
         Ok(count)
+    }
+
+    // Duplicate detection methods
+
+    async fn find_duplicate_task(
+        &self,
+        url: &str,
+        target_path: &Path,
+    ) -> Result<Option<TaskId>> {
+        let identifier = FileIdentifier::new(url, target_path, None);
+        let tasks = self.tasks.read().await;
+
+        // Simple in-memory duplicate detection for BasicDownloadManager
+        // Look for exact URL and path matches
+        for task in tasks.values() {
+            if task.url == url && task.target_path == target_path {
+                return Ok(Some(task.id));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn add_download_with_policy(
+        &self,
+        url: &str,
+        target_path: &Path,
+        policy: DuplicatePolicy,
+    ) -> Result<DuplicateResult> {
+        // Check for duplicates first
+        if let Some(existing_task_id) = self.find_duplicate_task(url, target_path).await? {
+            let task = self.get_task(existing_task_id).await?;
+            let task_status = TaskStatus::from_download_status(task.status);
+
+            if policy.allows_reuse(&task_status) {
+                return Ok(DuplicateResult::ExistingTask {
+                    task_id: existing_task_id,
+                    status: task_status,
+                    reason: DuplicateReason::UrlAndPath,
+                });
+            } else if policy.should_fail_on_duplicate() {
+                return Err(DownloadError::PolicyViolation {
+                    task_id: existing_task_id,
+                    reason: "Duplicate found but policy forbids reuse".to_string(),
+                }.into());
+            }
+        }
+
+        // No duplicate found or policy allows new task, create new download
+        let task_id = self.add_download(url.to_string(), target_path.to_path_buf()).await?;
+        Ok(DuplicateResult::NewTask(task_id))
+    }
+
+    async fn verify_task_validity(&self, task_id: &TaskId) -> Result<bool> {
+        // For BasicDownloadManager, just check if task exists
+        // In real implementation, this would check file existence, source accessibility, etc.
+        let tasks = self.tasks.read().await;
+        Ok(tasks.contains_key(task_id))
+    }
+
+    async fn get_duplicate_candidates(
+        &self,
+        url: &str,
+        target_path: &Path,
+    ) -> Result<Vec<TaskId>> {
+        let mut candidates = Vec::new();
+        let tasks = self.tasks.read().await;
+
+        // Look for exact matches first
+        for task in tasks.values() {
+            if task.url == url && task.target_path == target_path {
+                candidates.push(task.id);
+            }
+        }
+
+        // For BasicDownloadManager, we don't do complex duplicate detection
+        // Just return exact matches
+        Ok(candidates)
     }
 }
 

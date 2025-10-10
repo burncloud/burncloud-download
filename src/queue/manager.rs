@@ -374,6 +374,79 @@ impl DownloadManager for TaskQueueManager {
     async fn active_download_count(&self) -> Result<usize> {
         Ok(TaskQueueManager::active_download_count(self).await)
     }
+
+    // Duplicate detection methods
+
+    async fn find_duplicate_task(
+        &self,
+        url: &str,
+        target_path: &std::path::Path,
+    ) -> Result<Option<TaskId>> {
+        // Check all tasks for URL and path matches
+        let all_tasks = self.all_tasks.read().await;
+        for task in all_tasks.values() {
+            if task.url == url && task.target_path == target_path {
+                return Ok(Some(task.id));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn add_download_with_policy(
+        &self,
+        url: &str,
+        target_path: &std::path::Path,
+        policy: crate::models::DuplicatePolicy,
+    ) -> Result<crate::models::DuplicateResult> {
+        use crate::models::{DuplicateResult, DuplicateReason, TaskStatus};
+
+        // Check for duplicates first
+        if let Some(existing_task_id) = self.find_duplicate_task(url, target_path).await? {
+            let task = self.get_task(existing_task_id).await?;
+            let task_status = TaskStatus::from_download_status(task.status);
+
+            if policy.allows_reuse(&task_status) {
+                return Ok(DuplicateResult::ExistingTask {
+                    task_id: existing_task_id,
+                    status: task_status,
+                    reason: DuplicateReason::UrlAndPath,
+                });
+            } else if policy.should_fail_on_duplicate() {
+                return Err(crate::error::DownloadError::PolicyViolation {
+                    task_id: existing_task_id,
+                    reason: "Duplicate found but policy forbids reuse".to_string(),
+                }.into());
+            }
+        }
+
+        // No duplicate found or policy allows new task, create new download
+        let task_id = self.add_download(url.to_string(), target_path.to_path_buf()).await?;
+        Ok(DuplicateResult::NewTask(task_id))
+    }
+
+    async fn verify_task_validity(&self, task_id: &TaskId) -> Result<bool> {
+        // For TaskQueueManager, just check if task exists
+        let all_tasks = self.all_tasks.read().await;
+        Ok(all_tasks.contains_key(task_id))
+    }
+
+    async fn get_duplicate_candidates(
+        &self,
+        url: &str,
+        target_path: &std::path::Path,
+    ) -> Result<Vec<TaskId>> {
+        let mut candidates = Vec::new();
+        let all_tasks = self.all_tasks.read().await;
+
+        // Look for exact matches
+        for task in all_tasks.values() {
+            if task.url == url && task.target_path == target_path {
+                candidates.push(task.id);
+            }
+        }
+
+        Ok(candidates)
+    }
 }
 
 #[cfg(test)]

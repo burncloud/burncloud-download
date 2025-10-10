@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use anyhow::Result;
 use burncloud_download_types::{TaskId, DownloadProgress, DownloadTask, DownloadStatus};
+use crate::models::{DuplicatePolicy, DuplicateResult};
 
 /// Core download manager trait for implementing download backends
 #[async_trait]
@@ -29,6 +30,33 @@ pub trait DownloadManager: Send + Sync {
 
     /// Get number of active downloads
     async fn active_download_count(&self) -> Result<usize>;
+
+    // New methods for duplicate detection
+
+    /// Find existing task for the same download request
+    async fn find_duplicate_task(
+        &self,
+        url: &str,
+        target_path: &Path,
+    ) -> Result<Option<TaskId>>;
+
+    /// Add download with explicit duplicate handling policy
+    async fn add_download_with_policy(
+        &self,
+        url: &str,
+        target_path: &Path,
+        policy: DuplicatePolicy,
+    ) -> Result<DuplicateResult>;
+
+    /// Verify if existing task is still valid for reuse
+    async fn verify_task_validity(&self, task_id: &TaskId) -> Result<bool>;
+
+    /// Get all potential duplicate candidates
+    async fn get_duplicate_candidates(
+        &self,
+        url: &str,
+        target_path: &Path,
+    ) -> Result<Vec<TaskId>>;
 }
 
 /// Download event notification trait for implementing observers
