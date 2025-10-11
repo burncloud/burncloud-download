@@ -36,10 +36,11 @@ mod tests {
             None,
         );
 
-        // URLs should normalize to the same hash (ignoring query params in this example)
-        // Note: actual normalization behavior will be defined in implementation
+        // URLs should normalize differently when query params are present
         assert!(!id1.url_hash.is_empty());
         assert!(!id2.url_hash.is_empty());
+        // They should be different because query params are included after normalization
+        assert_ne!(id1.url_hash, id2.url_hash);
     }
 
     #[test]

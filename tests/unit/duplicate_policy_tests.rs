@@ -66,4 +66,30 @@ mod tests {
 
         assert!(debug_str.contains("PromptUser"));
     }
+
+    #[test]
+    fn test_allows_reuse_logic() {
+        use burncloud_download::TaskStatus;
+
+        let completed_status = TaskStatus::Completed;
+        let waiting_status = TaskStatus::Waiting;
+        let failed_status = TaskStatus::Failed("error".to_string());
+
+        // ReuseExisting should allow all
+        assert!(DuplicatePolicy::ReuseExisting.allows_reuse(&completed_status));
+        assert!(DuplicatePolicy::ReuseExisting.allows_reuse(&waiting_status));
+
+        // ReuseIfComplete should only allow completed
+        assert!(DuplicatePolicy::ReuseIfComplete.allows_reuse(&completed_status));
+        assert!(!DuplicatePolicy::ReuseIfComplete.allows_reuse(&waiting_status));
+
+        // ReuseIfIncomplete should only allow incomplete
+        assert!(!DuplicatePolicy::ReuseIfIncomplete.allows_reuse(&completed_status));
+        assert!(DuplicatePolicy::ReuseIfIncomplete.allows_reuse(&waiting_status));
+        assert!(DuplicatePolicy::ReuseIfIncomplete.allows_reuse(&failed_status));
+
+        // AllowDuplicate should never allow reuse
+        assert!(!DuplicatePolicy::AllowDuplicate.allows_reuse(&completed_status));
+        assert!(!DuplicatePolicy::AllowDuplicate.allows_reuse(&waiting_status));
+    }
 }

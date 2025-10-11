@@ -3,7 +3,9 @@
 //! Following TDD methodology: These tests are written FIRST and MUST FAIL
 //! before implementation begins to ensure we're testing the actual functionality.
 
-use burncloud_download::utils::url_normalization::normalize_url;
+use burncloud_download::utils::url_normalization::{
+    normalize_url, hash_normalized_url, process_url_for_storage, is_valid_url_hash
+};
 
 #[test]
 fn test_normalize_url_removes_fragment() {
@@ -86,4 +88,35 @@ fn test_normalize_url_handles_unicode() {
     let result = normalize_url("https://example.com/файл.zip");
     // Should either succeed with proper encoding or fail gracefully
     assert!(result.is_ok() || result.is_err());
+}
+
+#[test]
+fn test_hash_consistency() {
+    let url = "https://example.com/file.zip";
+    let hash1 = hash_normalized_url(url);
+    let hash2 = hash_normalized_url(url);
+    assert_eq!(hash1, hash2);
+    assert_eq!(hash1.len(), 64);
+}
+
+#[test]
+fn test_process_url_for_storage() {
+    let (normalized, hash) = process_url_for_storage("https://example.com/file.zip#section").unwrap();
+    assert_eq!(normalized, "https://example.com/file.zip");
+    assert_eq!(hash.len(), 64);
+    assert!(is_valid_url_hash(&hash));
+}
+
+#[test]
+fn test_is_valid_url_hash() {
+    // Valid Blake3 hash (64 hex characters)
+    let valid_hash = "a".repeat(64);
+    assert!(is_valid_url_hash(&valid_hash));
+
+    // Invalid length
+    assert!(!is_valid_url_hash("abc123"));
+
+    // Invalid characters
+    let invalid_hash = "z".repeat(64);
+    assert!(!is_valid_url_hash(&invalid_hash));
 }
