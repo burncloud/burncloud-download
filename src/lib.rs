@@ -141,7 +141,7 @@ pub async fn download<S: AsRef<str>>(url: S) -> Result<TaskId> {
     // Extract filename from URL
     let filename = url_str
         .split('/')
-        .last()
+        .next_back()
         .and_then(|name| if name.is_empty() { None } else { Some(name) })
         .unwrap_or("download");
 

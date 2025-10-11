@@ -30,6 +30,7 @@ burncloud-database-download = { path = "../burncloud-database-download" }
 # Duplicate detection dependencies
 blake3 = "1.5"
 url = "2.5"
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite"] }
 
 [features]
 default = []

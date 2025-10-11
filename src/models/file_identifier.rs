@@ -4,33 +4,8 @@
 //! normalized URL hash and target path.
 
 use std::path::{Path, PathBuf};
+use crate::utils::url_normalization::{process_url_for_storage};
 use blake3;
-
-/// Normalize URL for consistent duplicate detection
-fn normalize_url(url: &str) -> Result<String, url::ParseError> {
-    let mut parsed = url::Url::parse(url)?;
-
-    // Remove fragment
-    parsed.set_fragment(None);
-
-    // Sort query parameters for consistency
-    if let Some(query) = parsed.query() {
-        let mut params: Vec<(String, String)> = parsed
-            .query_pairs()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        params.sort();
-
-        let sorted_query = params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-        parsed.set_query(Some(&sorted_query));
-    }
-
-    Ok(parsed.to_string())
-}
 
 /// Composite key for identifying duplicate downloads
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -43,8 +18,12 @@ pub struct FileIdentifier {
 impl FileIdentifier {
     /// Create new FileIdentifier with normalized URL hash
     pub fn new(url: &str, target_path: &Path, file_size: Option<u64>) -> Self {
-        let normalized_url = normalize_url(url).unwrap_or_else(|_| url.to_string());
-        let url_hash = blake3::hash(normalized_url.as_bytes()).to_hex().to_string();
+        let (_normalized_url, url_hash) = process_url_for_storage(url)
+            .unwrap_or_else(|_| {
+                // Fallback to using original URL if normalization fails
+                let fallback_hash = blake3::hash(url.as_bytes()).to_hex().to_string();
+                (url.to_string(), fallback_hash)
+            });
 
         Self {
             url_hash,

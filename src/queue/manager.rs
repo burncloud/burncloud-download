@@ -25,6 +25,12 @@ pub struct TaskQueueManager {
     event_handlers: Arc<RwLock<Vec<Arc<dyn DownloadEventHandler>>>>,
 }
 
+impl Default for TaskQueueManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskQueueManager {
     pub fn new() -> Self {
         Self {
@@ -92,7 +98,7 @@ impl TaskQueueManager {
         let progress_map = self.progress.read().await;
         Ok(progress_map.get(&task_id)
             .cloned()
-            .unwrap_or_else(|| DownloadProgress::new()))
+            .unwrap_or_else(DownloadProgress::new))
     }
 
     /// Pause a download task
@@ -100,7 +106,7 @@ impl TaskQueueManager {
         let old_status = {
             let mut all_tasks = self.all_tasks.write().await;
             let task = all_tasks.get_mut(&task_id)
-                .ok_or_else(|| DownloadError::TaskNotFound(task_id))?;
+                .ok_or(DownloadError::TaskNotFound(task_id))?;
 
             if !task.status.can_pause() {
                 bail!("Task cannot be paused in current status: {}", task.status);
@@ -127,7 +133,7 @@ impl TaskQueueManager {
         let (old_status, new_status, task_clone) = {
             let mut all_tasks = self.all_tasks.write().await;
             let task = all_tasks.get_mut(&task_id)
-                .ok_or_else(|| DownloadError::TaskNotFound(task_id))?;
+                .ok_or(DownloadError::TaskNotFound(task_id))?;
 
             if !task.status.can_resume() {
                 bail!("Task cannot be resumed in current status: {}", task.status);
@@ -151,10 +157,8 @@ impl TaskQueueManager {
             if let Some(task) = task_clone {
                 self.active_tasks.write().await.insert(task_id, task);
             }
-        } else {
-            if let Some(task) = task_clone {
-                self.queued_tasks.lock().await.push_back(task);
-            }
+        } else if let Some(task) = task_clone {
+            self.queued_tasks.lock().await.push_back(task);
         }
 
         // Notify after locks released

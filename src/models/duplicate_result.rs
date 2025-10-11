@@ -5,13 +5,25 @@
 use crate::types::TaskId;
 use crate::models::{TaskStatus, DuplicateReason};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Result of duplicate detection and policy application
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DuplicateResult {
-    /// New task was created
+    /// No duplicate found - new task should be created
+    NotFound {
+        url_hash: String,
+        target_path: PathBuf,
+    },
+    /// Duplicate found - existing task should be reused
+    Found {
+        task_id: TaskId,
+        reason: DuplicateReason,
+        status: TaskStatus,
+    },
+    /// New task was created (legacy variant)
     NewTask(TaskId),
-    /// Existing task was found and will be reused
+    /// Existing task was found and will be reused (legacy variant)
     ExistingTask {
         task_id: TaskId,
         status: TaskStatus,
@@ -41,18 +53,30 @@ impl DuplicateResult {
     /// Get the task ID from any result variant
     pub fn task_id(&self) -> Option<TaskId> {
         match self {
+            DuplicateResult::NotFound { .. } => None,
+            DuplicateResult::Found { task_id, .. } => Some(*task_id),
             DuplicateResult::NewTask(id) => Some(*id),
             DuplicateResult::ExistingTask { task_id, .. } => Some(*task_id),
             DuplicateResult::RequiresDecision { .. } => None,
         }
     }
 
-    /// Check if this result represents a new task
+    /// Check if this result represents no duplicate found
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, DuplicateResult::NotFound { .. })
+    }
+
+    /// Check if this result represents a found duplicate
+    pub fn is_found(&self) -> bool {
+        matches!(self, DuplicateResult::Found { .. })
+    }
+
+    /// Check if this result represents a new task (legacy)
     pub fn is_new_task(&self) -> bool {
         matches!(self, DuplicateResult::NewTask(_))
     }
 
-    /// Check if this result represents an existing task
+    /// Check if this result represents an existing task (legacy)
     pub fn is_existing_task(&self) -> bool {
         matches!(self, DuplicateResult::ExistingTask { .. })
     }

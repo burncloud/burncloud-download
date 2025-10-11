@@ -22,6 +22,12 @@ pub struct BackgroundHashCalculator {
     // Background task queue will be added when implemented
 }
 
+impl Default for BackgroundHashCalculator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BackgroundHashCalculator {
     pub fn new() -> Self {
         Self {}
@@ -40,14 +46,14 @@ impl HashCalculator for BackgroundHashCalculator {
         use std::io::Read;
 
         let mut file = std::fs::File::open(file_path)
-            .map_err(|e| DownloadError::IoError(e))?;
+            .map_err(DownloadError::IoError)?;
 
         let mut hasher = blake3::Hasher::new();
         let mut buffer = [0; 8192];
 
         loop {
             let bytes_read = file.read(&mut buffer)
-                .map_err(|e| DownloadError::IoError(e))?;
+                .map_err(DownloadError::IoError)?;
 
             if bytes_read == 0 {
                 break;

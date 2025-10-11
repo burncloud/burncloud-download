@@ -49,7 +49,6 @@ const ARIA2_RPC_URL: &str = "http://localhost:6800/jsonrpc";
 const ARIA2_RPC_SECRET: &str = "burncloud";
 const PROGRESS_SAVE_INTERVAL_SECS: u64 = 5;
 const STATUS_POLL_INTERVAL_SECS: u64 = 1;
-const DEFAULT_DOWNLOAD_DIR: &str = "./data/";
 
 /// Persistent download manager that integrates Aria2 with database persistence
 pub struct PersistentAria2Manager {
@@ -206,40 +205,6 @@ impl PersistentAria2Manager {
         log::debug!("Removed mapping for task: {}", task_id);
     }
 
-    /// Get GID for task ID from mapping
-    async fn map_task_id_to_gid(&self, task_id: TaskId) -> Result<String> {
-        let mapping = self.task_mapping.read().await;
-        mapping.get(&task_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Task mapping not found for task: {}", task_id))
-    }
-
-    /// Ensure task mapping exists, rebuild if necessary
-    async fn ensure_task_mapping(&self, task_id: TaskId) -> Result<String> {
-        // Try to get mapping
-        if let Ok(gid) = self.map_task_id_to_gid(task_id).await {
-            return Ok(gid);
-        }
-
-        // Mapping missing - try to rebuild from aria2 state
-        let aria2_tasks = DownloadManagerTrait::list_tasks(&*self.aria2).await?;
-        for aria2_task in aria2_tasks {
-            if aria2_task.id == task_id {
-                // Found the task, rebuild mapping
-                let gid = self.get_gid_for_task(task_id).await?;
-                self.store_task_mapping(task_id, gid.clone()).await;
-                return Ok(gid);
-            }
-        }
-
-        Err(anyhow::anyhow!("Task {} not found in aria2 or mapping", task_id))
-    }
-
-    /// Get all active task IDs
-    async fn get_active_task_ids(&self) -> Vec<TaskId> {
-        let mapping = self.task_mapping.read().await;
-        mapping.keys().cloned().collect()
-    }
 
     /// Internal method to create a new download without duplicate checking
     async fn create_new_download(&self, url: String, target_path: PathBuf) -> Result<TaskId> {
@@ -384,6 +349,14 @@ impl DownloadManager for PersistentAria2Manager {
     async fn add_download(&self, url: String, target_path: PathBuf) -> Result<TaskId> {
         // Use duplicate detection with default policy (ReuseExisting)
         match self.add_download_with_policy(&url, &target_path, DuplicatePolicy::default()).await? {
+            DuplicateResult::NotFound { .. } => {
+                // No duplicate found, create new task
+                self.create_new_download(url, target_path).await
+            }
+            DuplicateResult::Found { task_id, .. } => {
+                // Duplicate found, return existing task ID
+                Ok(task_id)
+            }
             DuplicateResult::NewTask(task_id) => Ok(task_id),
             DuplicateResult::ExistingTask { task_id, .. } => Ok(task_id),
             DuplicateResult::RequiresDecision { .. } => {
@@ -474,7 +447,7 @@ impl DownloadManager for PersistentAria2Manager {
         target_path: &Path,
     ) -> Result<Option<TaskId>> {
         // Create file identifier for duplicate detection
-        let identifier = FileIdentifier::new(url, target_path, None);
+        let _identifier = FileIdentifier::new(url, target_path, None);
 
         // First check active tasks in aria2
         let active_tasks = DownloadManagerTrait::list_tasks(&*self.aria2).await?;

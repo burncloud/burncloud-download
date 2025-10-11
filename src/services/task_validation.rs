@@ -24,6 +24,12 @@ pub struct TaskValidation {
     // HTTP client will be added when implemented
 }
 
+impl Default for TaskValidation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskValidation {
     pub fn new() -> Self {
         Self {}

@@ -137,7 +137,7 @@ impl DownloadManager for BasicDownloadManager {
     async fn pause_download(&self, task_id: TaskId) -> Result<()> {
         let mut tasks = self.tasks.write().await;
         let task = tasks.get_mut(&task_id)
-            .ok_or_else(|| DownloadError::TaskNotFound(task_id))?;
+            .ok_or(DownloadError::TaskNotFound(task_id))?;
 
         if !task.status.can_pause() {
             return Err(anyhow::anyhow!("Task cannot be paused in current status: {}", task.status));
@@ -154,7 +154,7 @@ impl DownloadManager for BasicDownloadManager {
     async fn resume_download(&self, task_id: TaskId) -> Result<()> {
         let mut tasks = self.tasks.write().await;
         let task = tasks.get_mut(&task_id)
-            .ok_or_else(|| DownloadError::TaskNotFound(task_id))?;
+            .ok_or(DownloadError::TaskNotFound(task_id))?;
 
         if !task.status.can_resume() {
             return Err(anyhow::anyhow!("Task cannot be resumed in current status: {}", task.status));
@@ -217,7 +217,7 @@ impl DownloadManager for BasicDownloadManager {
         url: &str,
         target_path: &Path,
     ) -> Result<Option<TaskId>> {
-        let identifier = FileIdentifier::new(url, target_path, None);
+        let _identifier = FileIdentifier::new(url, target_path, None);
         let tasks = self.tasks.read().await;
 
         // Simple in-memory duplicate detection for BasicDownloadManager

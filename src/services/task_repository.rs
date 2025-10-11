@@ -38,6 +38,12 @@ pub struct DefaultTaskRepository {
     // Database connection will be added when implemented
 }
 
+impl Default for DefaultTaskRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultTaskRepository {
     pub fn new() -> Self {
         Self {}
