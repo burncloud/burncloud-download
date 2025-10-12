@@ -76,13 +76,13 @@ impl PersistentAria2Manager {
         db_path: Option<PathBuf>,
     ) -> Result<Self> {
         // Initialize database
-        let db = if let Some(path) = db_path {
-            let mut db = Database::new(path);
-            db.initialize().await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize database: {}", e))?;
-            db
+        let db = if let Some(_path) = db_path {
+            // Note: The new Database API only supports default path, custom paths are not supported
+            log::warn!("Custom database path specified but not supported in new API, using default path");
+            Database::new().await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize database: {}", e))?
         } else {
-            Database::new_default_initialized().await
+            Database::new().await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize database: {}", e))?
         };
 
