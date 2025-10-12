@@ -41,7 +41,7 @@ doc/
 - 类型重新导出
 
 ### [manager/](manager/) - 下载管理器
-- **basic.md**: 基础下载管理器，用于演示和测试
+- **basic.md**: 基础下载管理器，用于测试和最小功能实现
 - **persistent_aria2.md**: 生产环境使用的持久化Aria2管理器
 
 ### [models/](models/) - 数据模型
@@ -64,7 +64,7 @@ doc/
 ## 关键概念
 
 ### 下载管理器
-- `BasicDownloadManager`: 简单的内存管理器，用于测试
+- `BasicDownloadManager`: 简单的内存管理器，用于测试和基础功能验证
 - `PersistentAria2Manager`: 生产级管理器，支持持久化和恢复
 
 ### 重复检测

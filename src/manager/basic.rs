@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::Instant;
 use async_trait::async_trait;
 use anyhow::Result;
 
@@ -11,25 +10,15 @@ use crate::types::{TaskId, DownloadProgress, DownloadTask, DownloadStatus};
 use crate::models::{DuplicatePolicy, DuplicateResult, FileIdentifier, DuplicateReason, TaskStatus};
 use crate::error::DownloadError;
 
-/// Basic download manager implementation for demonstration and testing
+/// Basic download manager implementation for testing and minimal functionality
 ///
-/// This implementation provides a mock download functionality that simulates
-/// real download behavior for testing and demonstration purposes.
+/// This implementation provides basic task management without actual download
+/// functionality. It's intended for testing and as a minimal reference implementation.
 pub struct BasicDownloadManager {
     /// All tasks by ID
     tasks: Arc<RwLock<HashMap<TaskId, DownloadTask>>>,
     /// Task progress tracking
     progress: Arc<RwLock<HashMap<TaskId, DownloadProgress>>>,
-    /// Mock download simulation data
-    mock_data: Arc<RwLock<HashMap<TaskId, MockDownloadData>>>,
-}
-
-/// Mock data for simulating download progress
-#[derive(Clone)]
-struct MockDownloadData {
-    start_time: Instant,
-    total_size: u64,
-    download_speed: u64, // bytes per second
 }
 
 impl BasicDownloadManager {
@@ -37,78 +26,7 @@ impl BasicDownloadManager {
         Self {
             tasks: Arc::new(RwLock::new(HashMap::new())),
             progress: Arc::new(RwLock::new(HashMap::new())),
-            mock_data: Arc::new(RwLock::new(HashMap::new())),
         }
-    }
-
-    /// Update progress for a task (internal method)
-    async fn update_task_progress(&self, task_id: TaskId) -> Result<()> {
-        let mock_data = {
-            let mock_data_map = self.mock_data.read().await;
-            mock_data_map.get(&task_id).cloned()
-        };
-
-        if let Some(mock_data) = mock_data {
-            let elapsed = mock_data.start_time.elapsed();
-            let downloaded_bytes = std::cmp::min(
-                elapsed.as_secs() * mock_data.download_speed,
-                mock_data.total_size
-            );
-
-            let eta_seconds = if downloaded_bytes < mock_data.total_size {
-                let remaining_bytes = mock_data.total_size - downloaded_bytes;
-                Some(remaining_bytes / mock_data.download_speed)
-            } else {
-                None
-            };
-
-            let progress = DownloadProgress {
-                downloaded_bytes,
-                total_bytes: Some(mock_data.total_size),
-                speed_bps: mock_data.download_speed,
-                eta_seconds,
-            };
-
-            {
-                let mut progress_map = self.progress.write().await;
-                progress_map.insert(task_id, progress);
-            }
-
-            // If download is complete, update task status
-            if downloaded_bytes >= mock_data.total_size {
-                let mut tasks = self.tasks.write().await;
-                if let Some(task) = tasks.get_mut(&task_id) {
-                    task.update_status(DownloadStatus::Completed);
-                }
-
-                // Remove mock data as download is complete
-                self.mock_data.write().await.remove(&task_id);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Start mock download simulation for a task
-    async fn start_mock_download(&self, task_id: TaskId) {
-        // Create mock download data (simulate a 10MB file downloading at 1MB/s)
-        let mock_data = MockDownloadData {
-            start_time: Instant::now(),
-            total_size: 10 * 1024 * 1024, // 10MB
-            download_speed: 1024 * 1024,  // 1MB/s
-        };
-
-        self.mock_data.write().await.insert(task_id, mock_data);
-
-        // Initialize progress
-        let initial_progress = DownloadProgress {
-            downloaded_bytes: 0,
-            total_bytes: Some(10 * 1024 * 1024),
-            speed_bps: 1024 * 1024,
-            eta_seconds: Some(10),
-        };
-
-        self.progress.write().await.insert(task_id, initial_progress);
     }
 }
 
@@ -122,14 +40,21 @@ impl Default for BasicDownloadManager {
 impl DownloadManager for BasicDownloadManager {
     async fn add_download(&self, url: String, target_path: PathBuf) -> Result<TaskId> {
         let mut task = DownloadTask::new(url, target_path);
-        task.update_status(DownloadStatus::Downloading);
+        task.update_status(DownloadStatus::Waiting);
         let task_id = task.id;
 
         // Store the task
         self.tasks.write().await.insert(task_id, task);
 
-        // Start mock download simulation
-        self.start_mock_download(task_id).await;
+        // Initialize basic progress
+        let initial_progress = DownloadProgress {
+            downloaded_bytes: 0,
+            total_bytes: None,
+            speed_bps: 0,
+            eta_seconds: None,
+        };
+
+        self.progress.write().await.insert(task_id, initial_progress);
 
         Ok(task_id)
     }
@@ -145,9 +70,6 @@ impl DownloadManager for BasicDownloadManager {
 
         task.update_status(DownloadStatus::Paused);
 
-        // Remove from mock data to stop simulation
-        self.mock_data.write().await.remove(&task_id);
-
         Ok(())
     }
 
@@ -162,9 +84,6 @@ impl DownloadManager for BasicDownloadManager {
 
         task.update_status(DownloadStatus::Downloading);
 
-        // Resume mock download simulation
-        self.start_mock_download(task_id).await;
-
         Ok(())
     }
 
@@ -172,15 +91,11 @@ impl DownloadManager for BasicDownloadManager {
         // Remove from all collections
         self.tasks.write().await.remove(&task_id);
         self.progress.write().await.remove(&task_id);
-        self.mock_data.write().await.remove(&task_id);
 
         Ok(())
     }
 
     async fn get_progress(&self, task_id: TaskId) -> Result<DownloadProgress> {
-        // Update progress before returning
-        self.update_task_progress(task_id).await?;
-
         let progress_map = self.progress.read().await;
         progress_map.get(&task_id)
             .cloned()
@@ -188,9 +103,6 @@ impl DownloadManager for BasicDownloadManager {
     }
 
     async fn get_task(&self, task_id: TaskId) -> Result<DownloadTask> {
-        // Update progress to ensure task status is current
-        let _ = self.update_task_progress(task_id).await;
-
         let tasks = self.tasks.read().await;
         tasks.get(&task_id)
             .cloned()

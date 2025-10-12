@@ -223,8 +223,9 @@ mod user_workflows {
 
         // User checks final progress
         let final_progress = manager.get_progress(task_id).await.expect("Failed to get progress");
-        assert!(final_progress.speed_bps > 0);
-        assert!(final_progress.total_bytes.is_some());
+        // Note: BasicDownloadManager no longer simulates progress, so speed_bps is 0
+        assert_eq!(final_progress.speed_bps, 0);
+        assert_eq!(final_progress.total_bytes, None);
 
         // Clean up
         manager.cancel_download(task_id).await.expect("Failed to cancel");
