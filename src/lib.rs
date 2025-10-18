@@ -58,9 +58,10 @@ impl DownloadManager {
 
         // 同步状态到数据库
         self.db.update_status(gid, &status.status).await?;
+        let total: i64 = status.total_length.parse().unwrap_or(0);
         let completed: i64 = status.completed_length.parse().unwrap_or(0);
         let speed: i64 = status.download_speed.parse().unwrap_or(0);
-        self.db.update_progress(gid, completed, speed).await?;
+        self.db.update_progress(gid, total, completed, speed).await?;
 
         Ok(status)
     }
@@ -102,9 +103,10 @@ impl DownloadManager {
                 if let Some(client) = aria2.create_rpc_client() {
                     if let Ok(status) = client.tell_status(&gid).await {
                         let _ = db.update_status(&gid, &status.status).await;
+                        let total: i64 = status.total_length.parse().unwrap_or(0);
                         let completed: i64 = status.completed_length.parse().unwrap_or(0);
                         let speed: i64 = status.download_speed.parse().unwrap_or(0);
-                        let _ = db.update_progress(&gid, completed, speed).await;
+                        let _ = db.update_progress(&gid, total, completed, speed).await;
 
                         // 如果下载完成或出错，停止监控
                         if status.status == "complete" || status.status == "error" {
