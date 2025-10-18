@@ -9,10 +9,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manager = DownloadManager::new().await?;
     println!("下载管理器已启动，未完成任务已自动恢复");
 
-    loop {
-        sleep(Duration::from_secs(60)).await;
-    }
-
     // 示例：添加下载任务
     let url = "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/20.04.6/ubuntu-20.04.6-live-server-amd64.iso";
     let gid = manager.add_download(url, None).await?;
