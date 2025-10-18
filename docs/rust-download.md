@@ -1,8 +1,13 @@
 # Rust 下载功能
 
 ## 概述
-基于 Aria2 的 Rust 下载系统，集成数据库存储。
+基于 Aria2 的 Rust 下载系统，集成数据库存储。**启动时自动读取数据库并恢复所有未完成的下载任务。**
 
+## 特性
+- 基于 Aria2 的高效下载
+- 数据库持久化存储
+- **自动恢复**: 启动时读取数据库中未完成任务并自动恢复下载
+- 支持暂停/恢复/移除操作
 ## 架构
 - `burncloud-download`: Rust 下载核心
 - `burncloud-database-download`: 下载数据存储
@@ -18,11 +23,15 @@ pub struct DownloadManager {
 }
 
 impl DownloadManager {
+    pub async fn new() -> Result<Self>;
     pub async fn add_download(&self, url: &str) -> Result<String>;
     pub async fn get_status(&self, gid: &str) -> Result<DownloadStatus>;
     pub async fn pause(&self, gid: &str) -> Result<()>;
     pub async fn resume(&self, gid: &str) -> Result<()>;
     pub async fn remove(&self, gid: &str) -> Result<()>;
+
+    // 自动恢复未完成的下载任务
+    async fn restore_incomplete_downloads(&self) -> Result<Vec<String>>;
 }
 ```
 
@@ -47,6 +56,13 @@ pub struct DownloadTask {
 let manager = DownloadManager::new().await?;
 let gid = manager.add_download("https://example.com/file.zip").await?;
 println!("下载任务 ID: {}", gid);
+```
+
+### 初始化自动恢复
+```rust
+// 创建管理器时自动恢复未完成的下载
+let manager = DownloadManager::new().await?;
+// 系统会自动读取数据库中的未完成任务，并恢复下载
 ```
 
 ### 查询状态
