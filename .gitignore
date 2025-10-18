@@ -1,3 +1,5 @@
+downloads
+
 # Rust build artifacts
 /target/
 **/*.rs.bk
