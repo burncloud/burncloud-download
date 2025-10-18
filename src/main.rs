@@ -1,4 +1,5 @@
 use burncloud_download::DownloadManager;
+use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,13 +14,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gid = manager.add_download(url, None).await?;
     println!("添加下载任务: {}", gid);
 
-    // 查询状态
-    let status = manager.get_status(&gid).await?;
-    println!("状态: {}, 进度: {}/{}",
-        status.status,
-        status.completed_length,
-        status.total_length
-    );
+    // 监控任务直到完成
+    loop {
+        let status = manager.get_status(&gid).await?;
+        println!("状态: {}, 进度: {}/{}, 速度: {}",
+            status.status,
+            status.completed_length,
+            status.total_length,
+            status.download_speed
+        );
+
+        if status.status == "complete" || status.status == "error" {
+            println!("下载{}: {}",
+                if status.status == "complete" { "完成" } else { "失败" },
+                gid
+            );
+            break;
+        }
+
+        sleep(Duration::from_secs(3)).await;
+    }
 
     Ok(())
 }
