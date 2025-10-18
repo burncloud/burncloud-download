@@ -137,10 +137,12 @@ impl DownloadManager {
                     max_connection_per_server: None,
                     continue_download: Some(true),
                 };
-                if let Ok(gid) = client.add_uri(uris, Some(options)).await {
+                if let Ok(new_gid) = client.add_uri(uris, Some(options)).await {
+                    // 更新数据库中的gid为新的gid
+                    let _ = self.db.update_gid(&download.gid, &new_gid).await;
                     // 启动进度监控
-                    self.start_progress_monitor(&gid).await;
-                    restored.push(gid);
+                    self.start_progress_monitor(&new_gid).await;
+                    restored.push(new_gid);
                 }
             }
         }
