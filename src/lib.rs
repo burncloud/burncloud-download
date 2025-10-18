@@ -30,7 +30,15 @@ impl DownloadManager {
         let client = self.aria2.create_rpc_client().ok_or_else(||
             DownloadError::Aria2(burncloud_download_aria2::Aria2Error::RpcError("客户端未就绪".to_string())))?;
 
-        let gid = client.add_uri(vec![url.to_string()], None).await?;
+        let options = burncloud_download_aria2::DownloadOptions {
+            dir: Some("./downloads".to_string()),
+            out: None,
+            split: None,
+            max_connection_per_server: None,
+            continue_download: Some(true),
+        };
+
+        let gid = client.add_uri(vec![url.to_string()], Some(options)).await?;
         self.db.add(&gid, vec![url.to_string()]).await?;
         Ok(gid)
     }
@@ -87,7 +95,14 @@ impl DownloadManager {
         for download in incomplete {
             let uris: Vec<String> = serde_json::from_str(&download.uris).unwrap_or_default();
             if !uris.is_empty() {
-                if let Ok(gid) = client.add_uri(uris, None).await {
+                let options = burncloud_download_aria2::DownloadOptions {
+                    dir: Some("./downloads".to_string()),
+                    out: None,
+                    split: None,
+                    max_connection_per_server: None,
+                    continue_download: Some(true),
+                };
+                if let Ok(gid) = client.add_uri(uris, Some(options)).await {
                     restored.push(gid);
                 }
             }
